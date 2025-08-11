@@ -1,3 +1,7 @@
+openvla-7b/
+Qwen2.5-VL-3B-Instruct/
+note/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
