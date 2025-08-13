@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-import re
+import json, re
 from typing import List, Tuple
 
 import torch
@@ -27,7 +27,9 @@ except Exception:
 
 from ..api import SupplementRequest, SupplementResult
 
+_FACT_RE = re.compile(r"\[FACT_LIST\](.*?)\[/FACT_LIST\]", re.S)
 _SUP_RE = re.compile(r"\[SUPPLEMENT\](.*?)\[/SUPPLEMENT\]", re.S)
+
 # ban common "instructional/restatement" phrases to keep pure visible facts
 _BAN = re.compile(
     r"\b(needs to|should|effectively|in order to|perform an action|must|required to)\b",
@@ -116,6 +118,10 @@ def _truncate_tokens(processor, text: str, target_max_tokens: int = 120) -> str:
     toks = toks[:target_max_tokens]
     return processor.tokenizer.decode(toks, skip_special_tokens=True).strip()
 
+def _extract_block(pattern: re.Pattern, raw: str) -> str | None:
+    """在 raw 文本里抓取第一个匹配的方块内容；没有则返回 None。"""
+    m = pattern.search(raw)
+    return m.group(1).strip() if m else None
 
 def _extract_images_from_messages(messages: List[dict]) -> List[Image.Image]:
     """Fallback parser when qwen_vl_utils is unavailable (image-only)."""
@@ -136,6 +142,34 @@ def _extract_images_from_messages(messages: List[dict]) -> List[Image.Image]:
                     imgs.append(Image.open(path).convert("RGB"))
     return imgs
 
+def _safe_factlist_json(text: str) -> str:
+    """确保 FACT_LIST 内是合法 JSON，并补齐所有键。"""
+    try:
+        data = json.loads(text)
+    except Exception:
+        data = {}
+    # 强制补齐 schema
+    def _s(x): return x if isinstance(x, str) else ""
+    def _L(x): return x if isinstance(x, list) else []
+    def _objs(x):
+        out = []
+        if isinstance(x, list):
+            for o in x:
+                if not isinstance(o, dict): continue
+                name = _s(o.get("name",""))
+                attrs = o.get("attributes") if isinstance(o.get("attributes"), dict) else {}
+                out.append({"name": name, "attributes": attrs})
+        return out
+    data = {
+        "objects": _objs(data.get("objects", [])),
+        "location": _s(data.get("location","")),
+        "pose": _s(data.get("pose","")),
+        "grasp_points": _L(data.get("grasp_points", [])),
+        "obstacles": _L(data.get("obstacles", [])),
+        "state_text": _L(data.get("state_text", [])),
+        "uncertain": _L(data.get("uncertain", [])),
+    }
+    return json.dumps(data, ensure_ascii=False)
 
 class QwenVLSupplementor:
     """
@@ -200,49 +234,41 @@ class QwenVLSupplementor:
         self.bad_words_ids = [ids for ids in self.bad_words_ids if ids]
 
 
-    def _build_messages(self, image_paths: List[str], task: str) -> List[dict]:
-        # Qwen2.5-VL: system + user(content: [image(s), text])
+    def _build_messages(self, image_paths: List[str], task: str) -> list[dict]:
         content = [{"type": "image", "image": f"file://{p}"} for p in image_paths]
-        content.append(
-            {
-                "type": "text",
-                "text": (
-                    f"{task}\n\n"
-                    "Return ONLY one block, directly appendable:\n"
-                    "[SUPPLEMENT] ... [/SUPPLEMENT]"
-                ),
-            }
-        )
+        content.append({"type": "text", "text": (
+            f"{task}\n\n"
+            "Return TWO blocks in this exact order:\n"
+            "[FACT_LIST]{JSON with keys: objects(list of {name, attributes{color?}}), "
+            "location, pose, grasp_points(list), obstacles(list), state_text(list), uncertain(list)}[/FACT_LIST]\n"
+            "[SUPPLEMENT]Concise, task-aligned description[/SUPPLEMENT]"
+        )})
         return [
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": content},
         ]
 
-
     def _postprocess(self, raw_text: str, target_max_tokens: int = 120) -> str:
-        # 1) 抽取标签内正文；没有标签则兜底用整段
-        m = _SUP_RE.search(raw_text)
-        body = m.group(1).strip() if m else raw_text.strip()
+        fact_body = _extract_block(_FACT_RE, raw_text)
+        supp_body = _extract_block(_SUP_RE,  raw_text)
 
-        # 2) 句级剔除 + 词级清洗
-        body = _strip_instructional_sentences(body)
-        body = _clean_supplement(body)
+        # 1) FACT_LIST 兜底
+        if fact_body is None:
+            # 没有 FACT_LIST，就给个空表占位（方便 pipeline 不中断）
+            fact_json = {
+                "objects": [], "location":"", "pose":"", "grasp_points":[],
+                "obstacles": [], "state_text": [], "uncertain": []
+            }
+            fact_str = json.dumps(fact_json, ensure_ascii=False)
+        else:
+            fact_str = _safe_factlist_json(fact_body)
 
-        # 3) 规范化（字段名、换行、UNCERTAIN 大写等）
-        body = _normalize_block(body)
+        # 2) SUPPLEMENT 兜底 + 截断
+        if supp_body is None:
+            supp_body = "No additional details beyond the task description."
+        supp_body = _truncate_tokens(self.processor, supp_body, target_max_tokens)
 
-        # 4) token 级裁剪到 ≤ target_max_tokens
-        body = _truncate_tokens(self.processor, body, target_max_tokens)
-
-        # 5) 兜底：清洗后若为空，输出安全占位
-        if not body:
-            body = "No additional details beyond the task description."
-
-        # 6) 重新包裹
-        return f"[SUPPLEMENT]{body}[/SUPPLEMENT]"
-
-
-
+        return f"[FACT_LIST]{fact_str}[/FACT_LIST]\n[SUPPLEMENT]{supp_body}[/SUPPLEMENT]"
 
     @torch.inference_mode()
     def infer(self, req: SupplementRequest) -> SupplementResult:
@@ -272,23 +298,38 @@ class QwenVLSupplementor:
                 return_tensors="pt",
             ).to(self.model.device)
 
-        out_ids = self.model.generate(
+        # —— 关键改动：按需传采样参数，避免 do_sample=False 时仍传 temperature/top_p —— #
+        do_sample = (self.temperature is not None) and (float(self.temperature) > 0.0)
+
+        gen_kwargs = dict(
             **inputs,
             max_new_tokens=self.max_new_tokens,
-            do_sample=(self.temperature > 0.0),   # temperature=0.0 则走贪心
-            temperature=self.temperature,
-            top_p=self.top_p,
-            repetition_penalty=self.repetition_penalty,  # 你上面已有就保留
-            bad_words_ids=self.bad_words_ids,            # ★ 关键：硬屏蔽禁词
+            repetition_penalty=self.repetition_penalty,
+            bad_words_ids=self.bad_words_ids,  # 硬屏蔽禁词
             eos_token_id=self.processor.tokenizer.eos_token_id,
+            # pad_token_id 可不传；若要更稳，可以显式等于 eos：
+            # pad_token_id=self.processor.tokenizer.eos_token_id,
         )
+        if do_sample:
+            gen_kwargs.update(
+                do_sample=True,
+                temperature=float(self.temperature),
+                top_p=float(self.top_p),
+            )
+        else:
+            gen_kwargs.update(do_sample=False)
 
+        out_ids = self.model.generate(**gen_kwargs)
 
         # 只取新生成的部分并解码
-        new_ids = [o[len(i) :] for i, o in zip(inputs.input_ids, out_ids)]
+        new_ids = [o[len(i):] for i, o in zip(inputs.input_ids, out_ids)]
         raw = self.processor.batch_decode(
             new_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
         )[0]
 
+        if os.getenv("SUPP_DEBUG", "0") == "1":
+            print("=== RAW_DRAFT ===\n", raw)
+
         text = self._postprocess(raw, target_max_tokens=req.max_tokens)
         return SupplementResult(text=text, score=1.0, flags=[])
+
