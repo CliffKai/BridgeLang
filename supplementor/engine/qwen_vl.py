@@ -299,27 +299,19 @@ class QwenVLSupplementor:
             ).to(self.model.device)
 
         # —— 关键改动：按需传采样参数，避免 do_sample=False 时仍传 temperature/top_p —— #
-        do_sample = (self.temperature is not None) and (float(self.temperature) > 0.0)
-
+        do_sample = (self.temperature > 0.0)
         gen_kwargs = dict(
-            **inputs,
             max_new_tokens=self.max_new_tokens,
+            do_sample=do_sample,
             repetition_penalty=self.repetition_penalty,
-            bad_words_ids=self.bad_words_ids,  # 硬屏蔽禁词
+            bad_words_ids=self.bad_words_ids,
             eos_token_id=self.processor.tokenizer.eos_token_id,
-            # pad_token_id 可不传；若要更稳，可以显式等于 eos：
-            # pad_token_id=self.processor.tokenizer.eos_token_id,
         )
         if do_sample:
-            gen_kwargs.update(
-                do_sample=True,
-                temperature=float(self.temperature),
-                top_p=float(self.top_p),
-            )
-        else:
-            gen_kwargs.update(do_sample=False)
+            gen_kwargs.update(dict(temperature=self.temperature, top_p=self.top_p))
 
-        out_ids = self.model.generate(**gen_kwargs)
+        out_ids = self.model.generate(**inputs, **gen_kwargs)
+
 
         # 只取新生成的部分并解码
         new_ids = [o[len(i):] for i, o in zip(inputs.input_ids, out_ids)]

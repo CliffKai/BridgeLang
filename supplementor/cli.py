@@ -159,7 +159,7 @@ def main():
         payload["vlog"] = vlog
         payload["facts_before"] = facts_before_dict
         payload["facts_after"]  = facts_after_dict
-    print(json.dumps(payload, ensure_ascii=False))
+    print(json.dumps(payload, ensure_ascii=False), flush=True)
 
     # —— 可选：落盘 JSONL —— #
     if args.dump_vlog:
