@@ -12,6 +12,10 @@ from pathlib import Path
 
 # —— 避免某些 flash 内核在 80 维等场景下崩溃，统一偏好 math SDPA —— #
 import torch
+
+os.environ.setdefault("PYTORCH_SDP_DISABLE_FLASH", "1")
+os.environ.setdefault("PYTORCH_SDP_DISABLE_MEM_EFFICIENT", "1")
+
 os.environ.setdefault("PT_SDPA_ENABLE_HEAD_DIM_PADDING", "1")
 try:
     torch.backends.cuda.sdp_kernel(
@@ -157,59 +161,112 @@ def _object_phrase(name: str, color: str|None, relax_color: bool) -> str:
         return name
     return f"{color} {name}".strip()
 
-# === 替换原来的 _build_checks ===
+def _normalize_loc(loc: str) -> str:
+    t = (loc or "").strip().lower()
+    # 更自然的口语化同义
+    repl = {
+        "on table": "on the table",
+        "on a table": "on the table",
+        "at table": "on the table",
+        "on countertop": "on the countertop",
+        "on counter": "on the counter",
+        "on top of stove": "on the stove",
+        "on top of the stove": "on the stove",
+        "countertop next to sink": "on the countertop next to the sink",
+        "countertop": "on the countertop",  # 常见短写
+        "stove top": "on the stove",
+        "towards the table": "toward the table",
+        "towards table": "toward the table",
+    }
+    for k, v in repl.items():
+        t = t.replace(k, v)
+    # 去重空格
+    t = " ".join(t.split())
+    return t
+
+def _normalize_pose(pose: str) -> str:
+    t = (pose or "").strip().lower()
+    t = t.replace("angled towards the", "tilted toward the")
+    t = t.replace("angled toward the", "tilted toward the")
+    t = t.replace("angled towards", "tilted toward")
+    t = t.replace("angled toward", "tilted toward")
+    t = t.replace("pointing at", "pointing to")
+    t = t.replace("towards the", "toward the")
+    t = " ".join(t.split())
+    return t
+
+def _object_phrase(name: str, color: str|None, relax_color: bool) -> str:
+    name = (name or "").strip()
+    color = (color or "").strip() or None
+    if not name:
+        return ""
+    if relax_color or not color:
+        return name
+    return f"{color} {name}".strip()
+
 def _build_checks(facts_after: dict) -> dict:
     """
-    从主裁判确认后的 facts_after 生成一组“待复核”的 YES/NO 问题。
-    - 默认不带颜色限定（可通过 ALT_RELAX_COLOR 控制）
-    - 位置/姿态短语更自然
-    - 抓取点只问是否可见（不问 suitable，以减少主观性）
+    从主裁判确认后的 facts_after 生成一组待复核问题。
+    环境变量控制开关：
+      ALT_SKIP_OBJECTS=1   跳过 objects
+      ALT_SKIP_LOCATION=1  跳过 location
+      ALT_SKIP_POSE=1      跳过 pose
+      ALT_SKIP_GP=1        跳过 grasp_points
+      ALT_RELAX_COLOR=1    问 objects 时不强制颜色（默认 1）
     """
-    checks = {"objects": [], "pose": None, "location": None, "grasp_points": []}
-
+    skip_obj = bool(int(os.getenv("ALT_SKIP_OBJECTS", "0")))
+    skip_loc = bool(int(os.getenv("ALT_SKIP_LOCATION", "0")))
+    skip_pose = bool(int(os.getenv("ALT_SKIP_POSE", "0")))
+    skip_gp  = bool(int(os.getenv("ALT_SKIP_GP", "0")))
     relax_color = bool(int(os.getenv("ALT_RELAX_COLOR", "1")))
 
-    # objects
-    for o in facts_after.get("objects", []) or []:
-        name = (o.get("name") or "").strip()
-        color = (o.get("attributes", {}) or {}).get("color")
-        desc = _object_phrase(name, color, relax_color)
-        if desc:
-            q = f"Is there a {desc} visible in the image?"
-            checks["objects"].append({"name": name, "color": None if relax_color else color, "question": q})
+    checks = {"objects": [], "pose": None, "location": None, "grasp_points": []}
 
-    # 选一个 target 描述
-    target = None
-    if checks["objects"]:
-        c0 = checks["objects"][0]
-        target = c0["name"].strip()
+    # objects
+    targets = []
+    if not skip_obj:
+        for o in facts_after.get("objects", []) or []:
+            name = (o.get("name") or "").strip()
+            color = (o.get("attributes", {}) or {}).get("color")
+            desc = _object_phrase(name, color, relax_color)
+            if desc:
+                q = f"Is there a {desc} visible in the image?"
+                checks["objects"].append({"name": name, "color": None if relax_color else color, "question": q})
+                targets.append(name)
+
+    # 选一个 target（只用名称，避免颜色过度约束）
+    target = targets[0] if targets else None
 
     # location
-    loc_raw = facts_after.get("location") or ""
-    loc = _normalize_loc(loc_raw)
-    if loc and target:
-        checks["location"] = {
-            "value": loc,
-            "question": f"Is the {target} {loc}?",
-        }
+    if not skip_loc:
+        loc_raw = facts_after.get("location") or ""
+        loc = _normalize_loc(loc_raw)
+        if loc and target:
+            checks["location"] = {
+                "value": loc,
+                "question": f"Is the {target} {loc}?",
+            }
 
     # pose
-    pose_raw = facts_after.get("pose") or ""
-    pose = _normalize_pose(pose_raw)
-    if pose and target:
-        checks["pose"] = {
-            "value": pose,
-            "question": f"Is the {target} {pose}?",
-        }
+    if not skip_pose:
+        pose_raw = facts_after.get("pose") or ""
+        pose = _normalize_pose(pose_raw)
+        if pose and target:
+            checks["pose"] = {
+                "value": pose,
+                "question": f"Is the {target} {pose}?",
+            }
 
-    # grasp points
-    for gp in (facts_after.get("grasp_points") or []):
-        gp = (gp or "").strip()
-        if gp and target:
-            q = f"Is the {gp} of the {target} visible?"
-            checks["grasp_points"].append({"name": gp, "question": q})
+    # grasp points（只问“是否可见”，不问“是否适合抓取”）
+    if not skip_gp and target:
+        for gp in (facts_after.get("grasp_points") or []):
+            gp = (gp or "").strip()
+            if gp:
+                q = f"Is the {target}'s {gp} visible?"
+                checks["grasp_points"].append({"name": gp, "question": q})
 
     return checks
+
 
     
 def run_alt_review(alt: GenericVLYesNo, image: str, facts_after: dict, force_sample: bool|None=None) -> dict:

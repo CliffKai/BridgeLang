@@ -1,0 +1,21 @@
+image,objects,location,pose,grasp_points,flags,elapsed_s,disagreement
+val_fcc240af5d8e.jpg,silver pot,on a wooden cutting board next to a jar of almonds,in a vertical orientation,top edge,DRAFT VERIFIED,31.3,True
+val_14916344dcb3.jpg,,drawer,,,DRAFT VERIFIED,19.7,False
+val_165147511bf9.jpg,blue cube,on top of the cube,standing upright,,DRAFT VERIFIED,28.2,True
+val_0aa3de125a86.jpg,silver faucet,on the sink,vertical,handle,DRAFT VERIFIED,33.4,True
+val_c4f114cb71ba.jpg,,,,,DRAFT VERIFIED,11.1,False
+val_4a5da9c93298.jpg,violet violet cloth,on the right side of the wooden table,folded and placed on the table,front edge,DRAFT VERIFIED,26.4,True
+val_25f57125e48a.jpg,yellow cloth,on table,folded,"top edge, bottom edge",DRAFT VERIFIED,29.5,True
+val_b5056d2a3a5a.jpg,folded cloth,countertop next to sink,folded in half,bottom edge,DRAFT VERIFIED,26.3,True
+val_c0bfbdd4a708.jpg,,on the counter next to the stove,,,DRAFT VERIFIED,20.9,False
+val_2e3d13942515.jpg,,,,,DRAFT VERIFIED,10.1,False
+val_19246de45956.jpg,,on countertop,,handle,DRAFT VERIFIED,22.9,False
+val_58c947b9ef21.jpg,,,,,DRAFT VERIFIED,12.6,False
+val_e1682027b2ae.jpg,,on top of a counter,,,DRAFT VERIFIED,19.5,False
+val_c4163b1a9f9d.jpg,black lid,on top of stove,angled towards pot,"top edge, handle",DRAFT VERIFIED,34.8,True
+val_5dabab58d3ad.jpg,green cloth,on a wooden surface,folded at the top,,DRAFT VERIFIED,22.8,False
+val_539c89e9c593.jpg,"yellow knife, white can",table,,handle,DRAFT VERIFIED,32.2,True
+val_6b3461b6a4e2.jpg,induction cooker,on countertop,,handle,DRAFT VERIFIED,27.5,True
+val_6b0f04c28f23.jpg,silver pan,stove,on top of stove,handle,DRAFT VERIFIED,28.1,True
+val_8841736819cc.jpg,gray sink,countertop,vertical to front,front edge,DRAFT VERIFIED,26.7,True
+val_58a81bbbf6ed.jpg,"yellow yellow block, red red block",center of the table,flat on the table,"front edge, top surface",DRAFT VERIFIED,35.8,True

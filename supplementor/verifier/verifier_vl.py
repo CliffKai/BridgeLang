@@ -72,6 +72,7 @@ class VisualVerifier:
             low_cpu_mem_usage=True,
             device_map=cfg.device_map,
             max_memory=max_mem,
+            attn_implementation="eager",   # ← 同样强制 eager
             **q_kwargs
         )
         self.processor = AutoProcessor.from_pretrained(cfg.model_id, local_files_only=cfg.offline)

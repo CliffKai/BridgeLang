@@ -220,6 +220,7 @@ class QwenVLSupplementor:
             device_map=device_map,
             quantization_config=quantization_config,
             local_files_only=self.offline,
+            attn_implementation="eager",   # ← 强制禁用 Flash/SDPA，走 eager
         )
         self.processor = AutoProcessor.from_pretrained(
             model_id, local_files_only=self.offline
