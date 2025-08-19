@@ -7,6 +7,63 @@ Now includes 'disagreement' column from heterogeneous cross-check.
 import argparse, json, csv
 from pathlib import Path
 
+
+import json, re
+
+SUP_RE  = re.compile(r"\[SUPPLEMENT\](.*?)\[/SUPPLEMENT\]", re.S)
+
+def _as_dict(x):
+    if isinstance(x, dict): 
+        return x
+    if isinstance(x, str):
+        try:
+            return json.loads(x)
+        except Exception:
+            return {}
+    return {}
+
+def _parse_structured_supp(supp: str):
+    """老格式兜底：从规范化 SUPPLEMENT 里的 label 行回填 schema。"""
+    def grab(label):
+        m = re.search(rf"{re.escape(label)}\s*(.*)", supp, flags=re.I)
+        return (m.group(1).strip() if m else "")
+    objs_line = grab("Target object(s):")
+    objs=[]
+    if objs_line:
+        for name in [x.strip() for x in re.split(r"[;,]", objs_line) if x.strip()]:
+            objs.append({"name": name, "attributes": {}})
+    return {
+        "objects": objs,
+        "location": grab("Location:"),
+        "pose": grab("Pose/Orientation:"),
+        "grasp_points": [x.strip() for x in re.split(r"[;,]", grab("Graspable parts (if visible):")) if x.strip()],
+        "obstacles": [x.strip() for x in re.split(r"[;,]", grab("Obstacles/Free space:")) if x.strip()],
+        "state_text": [x.strip() for x in re.split(r"[;,]", grab("State/Labels/Text:")) if x.strip()],
+        "uncertain": [x.strip() for x in re.split(r"[;,]", grab("UNCERTAIN:")) if x.strip()],
+    }
+
+def get_fact(rec: dict) -> dict:
+    """
+    统一读取：facts_after → facts_before → 兜底解析 SUPPLEMENT 文本 → 返回完整 schema（可能为空）。
+    """
+    fact = _as_dict(rec.get("facts_after") or rec.get("facts_before") or {})
+    if not fact:
+        m = SUP_RE.search(rec.get("supplement") or "")
+        fact = _parse_structured_supp(m.group(1)) if m else {}
+    # 补齐 schema 键，避免下游 KeyError
+    return {
+        "objects":       fact.get("objects", []),
+        "location":      fact.get("location", "") or "",
+        "pose":          fact.get("pose", "") or "",
+        "grasp_points":  fact.get("grasp_points", []),
+        "obstacles":     fact.get("obstacles", []),
+        "state_text":    fact.get("state_text", []),
+        "uncertain":     fact.get("uncertain", []),
+    }
+
+
+
+
 def _obj_str(facts_after):
     if not facts_after: return ""
     objs = []

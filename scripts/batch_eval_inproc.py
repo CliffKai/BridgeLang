@@ -16,11 +16,11 @@ import torch
 os.environ.setdefault("PYTORCH_SDP_DISABLE_FLASH", "1")
 os.environ.setdefault("PYTORCH_SDP_DISABLE_MEM_EFFICIENT", "1")
 
+# 让 PyTorch SDPA 支持 head_dim padding（保险起见，FA2 也不冲突）
 os.environ.setdefault("PT_SDPA_ENABLE_HEAD_DIM_PADDING", "1")
+# 不再屏蔽 flash；三种内核都打开，由模型自行选择（FA2 时这行其实不起作用）
 try:
-    torch.backends.cuda.sdp_kernel(
-        enable_flash=False, enable_mem_efficient=False, enable_math=True
-    )
+    torch.backends.cuda.sdp_kernel(enable_flash=True, enable_mem_efficient=True, enable_math=True)
 except Exception:
     pass
 
@@ -76,6 +76,12 @@ class GenericVLYesNo:
 
         # 识别是否为 LLaVA 家族
         cfg = AutoConfig.from_pretrained(model_id, local_files_only=offline)
+        # 指定使用 Flash-Attention v2
+        try:
+            cfg._attn_implementation = "flash_attention_2"
+        except Exception:
+            pass
+
         model_type = getattr(cfg, "model_type", None)
 
         if model_type == "llava_next":
@@ -90,6 +96,7 @@ class GenericVLYesNo:
             device_map="auto",
             torch_dtype=torch_dtype,
             local_files_only=offline,
+            config=cfg,  
         )
         self.processor = AutoProcessor.from_pretrained(
             model_id, local_files_only=offline, use_fast=use_fast
@@ -161,6 +168,7 @@ def _object_phrase(name: str, color: str|None, relax_color: bool) -> str:
         return name
     return f"{color} {name}".strip()
 
+
 def _normalize_loc(loc: str) -> str:
     t = (loc or "").strip().lower()
     # 更自然的口语化同义
@@ -195,14 +203,20 @@ def _normalize_pose(pose: str) -> str:
     t = " ".join(t.split())
     return t
 
-def _object_phrase(name: str, color: str|None, relax_color: bool) -> str:
-    name = (name or "").strip()
-    color = (color or "").strip() or None
-    if not name:
-        return ""
-    if relax_color or not color:
-        return name
-    return f"{color} {name}".strip()
+def _merge_color_name(name: str, color: str|None) -> str:
+    """把颜色与名称合并，避免 yellow yellow block 等重复；大小写/前缀安全。"""
+    nn = (name or "").strip()
+    cc = (color or "").strip() if color else ""
+    if not cc:
+        return nn
+    low = nn.lower()
+    ccl = cc.lower()
+    # 如果名称已经以颜色开头，或颜色词已在名称的首两个 token 中，就不再重复
+    toks = low.split()
+    if low.startswith(ccl + " ") or (toks and ccl in toks[:2]):
+        return nn
+    return f"{cc} {nn}".strip()
+
 
 def _build_checks(facts_after: dict) -> dict:
     """
@@ -392,14 +406,20 @@ def main():
                 flags.append("VERIFIED")
                 # 规则式回写
                 names = ", ".join([
-                    ((o.attributes.get("color")+" "+o.name).strip()
-                     if getattr(o, "attributes", {}) and o.attributes.get("color") else o.name)
+                    _merge_color_name(
+                        o.name,
+                        (getattr(o, "attributes", {}) or {}).get("color")
+                    )
                     for o in getattr(facts_v, "objects", [])
                 ]) or ""
+
+                loc_norm = _normalize_loc(getattr(facts_v, 'location','') or "")
+                pose_norm = _normalize_pose(getattr(facts_v, 'pose','') or "")
+
                 lines = [
                     f"Target object(s): {names}".strip(),
-                    f"Location: {getattr(facts_v, 'location','')}".strip(),
-                    f"Pose/Orientation: {getattr(facts_v, 'pose','')}".strip(),
+                    f"Location: {loc_norm}".strip(),
+                    f"Pose/Orientation: {pose_norm}".strip(),
                     f"Graspable parts (if visible): {', '.join(getattr(facts_v,'grasp_points',[]) or [])}".strip(),
                     f"Obstacles/Free space: {', '.join(getattr(facts_v,'obstacles',[]) or [])}".strip(),
                     f"State/Labels/Text: {', '.join(getattr(facts_v,'state_text',[]) or [])}".strip(),

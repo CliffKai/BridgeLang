@@ -51,7 +51,7 @@ FACT_LIST JSON schema (ALL keys required):
   ],
   "location": "brief place or 'UNCERTAIN'",
   "pose": "pose/orientation or 'UNCERTAIN'",
-  "grasp_points": ["handle", "front edge", "rim"],   // prefer ONE clear point; use ["UNCERTAIN"] if unknown; NEVER mix concrete points with "UNCERTAIN"
+  "grasp_points": ["handle", "front edge", "rim"],   // use ["UNCERTAIN"] if unknown
   "obstacles": ["apple", "box"],                      // may be []
   "state_text": ["any visible text"],                 // may be []
   "uncertain": ["pose:not visible", "location:likely on stove (from task), not visible"]
@@ -61,87 +61,9 @@ Output validation (self-check BEFORE printing) — fix if any check fails:
 - If location is empty -> set "UNCERTAIN".
 - If pose is empty -> set "UNCERTAIN".
 - If grasp_points is empty -> set ["UNCERTAIN"].
-- If grasp_points contains "UNCERTAIN", it must be the ONLY entry (do not mix with concrete points).
-- Prefer ONE concrete grasp point; list two only if both are equally obvious (e.g., symmetric handles).
 - For objects:
   * If no object is visually confirmed, keep "objects": [] (do NOT auto-fill from task),
     and add an `uncertain` entry explaining why (e.g., "objects:target not visible/occluded").
 - Finally print EXACTLY two blocks:
   [FACT_LIST]{valid JSON}[/FACT_LIST]
   [SUPPLEMENT]1–3 concise sentences that can directly append to the task.[/SUPPLEMENT]
-
----
-GRASP DECISION (balanced v2):
-- Choose a concrete grasp point ONLY if the physical part is clearly visible (continuous contour, not heavily blurred, not truncated).
-- If doubtful, partially occluded, or poorly delineated, set grasp_points to ["UNCERTAIN"] and add a brief reason in `uncertain`.
-- Prefer ONE grasp point. List two only if both are equally obvious (e.g., symmetric handles).
-- NEVER mix a concrete point with "UNCERTAIN" in the same list.
-- Never infer grasp points from task text alone.
-- Heuristics:
-  * mug/cup/pot/pan: visible side handle → "handle"; if no handle but circular opening clearly seen → "rim".
-  * flat bag/packet: clearly sealed or straight top boundary → "top edge"; otherwise "UNCERTAIN".
-  * box/book: a clearly exposed acute corner → "corner"; long straight boundary without occlusion → "front edge" or "side edge".
-  * bottle/can: visible threaded top or lid → "cap"; otherwise use "body" only if the cylindrical body is fully visible and not occluded.
-
-GRASP VOCAB (use when applicable; pick the most specific):
-["handle","rim","front edge","side edge","top edge","corner","lid","knob","spout","tab","cap","flap","spine","body"]
-
-POSITIVE FEW-SHOTS (clear = concrete, single preferred):
-
-[FACT_LIST]{
-  "objects":[{"name":"metal pot","attributes":{"color":"silver"}}],
-  "location":"on stove top",
-  "pose":"upright, handle right",
-  "grasp_points":["handle"],
-  "obstacles":[],
-  "state_text":[],
-  "uncertain":[]
-}[/FACT_LIST]
-[SUPPLEMENT]A silver pot rests on the stove; the side handle is clearly visible for grasping.[/SUPPLEMENT]
-
-[FACT_LIST]{
-  "objects":[{"name":"snack bag","attributes":{"color":"white"}}],
-  "location":"on cutting board",
-  "pose":"lying on side",
-  "grasp_points":["top edge"],
-  "obstacles":["apple"],
-  "state_text":[],
-  "uncertain":[]
-}[/FACT_LIST]
-[SUPPLEMENT]A white snack bag lies on the board; the top edge is cleanly outlined as the grasp point. Apple nearby.[/SUPPLEMENT]
-
-[FACT_LIST]{
-  "objects":[{"name":"plastic bottle","attributes":{"color":"transparent"}}],
-  "location":"on table",
-  "pose":"upright",
-  "grasp_points":["cap"],
-  "obstacles":[],
-  "state_text":[],
-  "uncertain":[]
-}[/FACT_LIST]
-[SUPPLEMENT]A transparent bottle stands on the table; the cap is clearly visible for grasping.[/SUPPLEMENT]
-
-[FACT_LIST]{
-  "objects":[{"name":"cardboard box","attributes":{}}],
-  "location":"on table",
-  "pose":"closed",
-  "grasp_points":["corner"],
-  "obstacles":[],
-  "state_text":[],
-  "uncertain":[]
-}[/FACT_LIST]
-[SUPPLEMENT]A box sits on the table; one corner is exposed and well defined for grasping.[/SUPPLEMENT]
-
-NEGATIVE FEW-SHOT (ambiguous = UNCERTAIN):
-
-[FACT_LIST]{
-  "objects":[{"name":"microwave door","attributes":{}}],
-  "location":"on kitchen counter",
-  "pose":"closed",
-  "grasp_points":["UNCERTAIN"],
-  "obstacles":[],
-  "state_text":[],
-  "uncertain":["grasp_points:handle partially occluded; not clearly visible"]
-}[/FACT_LIST]
-[SUPPLEMENT]The microwave door is closed on the counter; the handle is partly occluded, so the grasp point is uncertain.[/SUPPLEMENT]
-
