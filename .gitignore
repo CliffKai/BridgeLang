@@ -5,6 +5,11 @@ Qwen2.5-VL-72B-Instruct/
 LLaVA-v1.6-34B/
 logs/
 manifests/
+.deps_openvla/
+code/
+.libero_cfg/
+.cfg/
+.deps_shims/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

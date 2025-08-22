@@ -1,17 +1,17 @@
 #!/bin/bash
-
-# 初始化 Conda
+set -euo pipefail
 source /root/anaconda3/etc/profile.d/conda.sh
-
-# 激活 openvla
 conda activate openvla
+cd /mnt/openvla
 
-echo "[INFO] Running OpenVLA with Flash Attention disabled, using math backend and head_dim padding"
+echo "[INFO] Python: $(python -V)"
+echo "[INFO] CUDA: $(python - <<'PY'
+import torch; print(torch.version.cuda, torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu")
+PY
+)"
 
-# 环境变量设置
-export PYTORCH_SDP_BACKEND=math
-export PYTORCH_ENABLE_SDPA=0
+export PYTORCH_ENABLE_SDPA=1
 export PT_SDPA_ENABLE_HEAD_DIM_PADDING=1
+unset PYTORCH_SDP_BACKEND
 
-# 启动脚本
-python run_openvla_demo.py
+python -u run_openvla_demo.py
