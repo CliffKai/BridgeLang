@@ -82,7 +82,14 @@ The Bridge-CoT dataset used to train BridgeLang is available on HuggingFace:
 ## Citation
 
 ```bibtex
-# Coming soon upon publication.
+@InProceedings{Wei_2026_CVPR,
+    author    = {Wei, Kaikai and wen, Di and Li, Xinhai and Xiang, Senwei},
+    title     = {Plug-and-Think: Structured Reasoning for Vision-Language-Action Models},
+    booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) Findings},
+    month     = {June},
+    year      = {2026},
+    pages     = {3136-3145}
+}
 ```
 
 ## License
